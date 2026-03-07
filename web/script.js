@@ -3,6 +3,7 @@ let currentTab = 'attackers';
 let searchQuery = '';
 let favorites = loadFavorites();
 let userDpi = loadDpi();
+let weaponIntensityMap = loadWeaponIntensityMap();
 let selectedOperator = null;
 let selectedWeapon = null;
 let capsPollIntervalId = null;
@@ -21,6 +22,7 @@ let lastClientEventAt = 0;
 const CLIENT_EVENT_MIN_INTERVAL_MS = 400;
 const ENABLE_REMOTE_ASSETS = true;
 const TAB_SWITCH_DEBOUNCE_MS = 220;
+const ICON_CACHE_NAME = 'phantom-recoil-icons-v1';
 let lastDiagDumpAt = 0;
 const DIAG_DUMP_COOLDOWN_MS = 15000;
 
@@ -78,8 +80,141 @@ function saveDpi(value) {
     }
 }
 
+function clampIntensity(value) {
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed)) {
+        return 0.5;
+    }
+    return Math.max(0.01, Math.min(1.0, parsed));
+}
+
+function getWeaponKey(operator, weapon) {
+    const op = slugify(operator && operator.name ? operator.name : 'unknown-op');
+    const wep = slugify(weapon && weapon.name ? weapon.name : 'unknown-weapon');
+    return `${op}::${wep}`;
+}
+
+function loadWeaponIntensityMap() {
+    try {
+        const raw = localStorage.getItem('r6_weapon_intensity');
+        if (!raw) {
+            return {};
+        }
+
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return {};
+        }
+
+        const cleaned = {};
+        Object.keys(parsed).forEach((key) => {
+            cleaned[key] = clampIntensity(parsed[key]);
+        });
+        return cleaned;
+    } catch (err) {
+        console.warn('[Storage] Invalid weapon intensity map, resetting.', err);
+        return {};
+    }
+}
+
+function saveWeaponIntensityMap() {
+    localStorage.setItem('r6_weapon_intensity', JSON.stringify(weaponIntensityMap));
+}
+
+function getWeaponIntensity(operator, weapon) {
+    const key = getWeaponKey(operator, weapon);
+    if (!Object.prototype.hasOwnProperty.call(weaponIntensityMap, key)) {
+        return null;
+    }
+    return clampIntensity(weaponIntensityMap[key]);
+}
+
+function setWeaponIntensity(operator, weapon, value) {
+    const key = getWeaponKey(operator, weapon);
+    weaponIntensityMap[key] = clampIntensity(value);
+    saveWeaponIntensityMap();
+    return weaponIntensityMap[key];
+}
+
 function isPyWebViewAvailable() {
     return Boolean(window.pywebview && window.pywebview.api);
+}
+
+async function resolveCachedIconUrl(url) {
+    if (!ENABLE_REMOTE_ASSETS || !url) {
+        return null;
+    }
+
+    if (typeof window.caches === 'undefined') {
+        return url;
+    }
+
+    try {
+        const cache = await window.caches.open(ICON_CACHE_NAME);
+        let response = await cache.match(url);
+
+        if (!response) {
+            const fetched = await fetch(url, { cache: 'force-cache' });
+            if (!fetched.ok) {
+                return url;
+            }
+            response = fetched.clone();
+            cache.put(url, fetched).catch(() => {
+                // Best effort only.
+            });
+        }
+
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+    } catch (err) {
+        console.warn('[Icons] Failed to resolve cached icon URL.', err);
+        return url;
+    }
+}
+
+function setImageSourceWithCache(imgElement, url, onFallback) {
+    if (!imgElement || !ENABLE_REMOTE_ASSETS) {
+        if (typeof onFallback === 'function') {
+            onFallback();
+        }
+        return;
+    }
+
+    let createdBlobUrl = null;
+    const cleanupBlobUrl = () => {
+        if (createdBlobUrl) {
+            const urlToRevoke = createdBlobUrl;
+            createdBlobUrl = null;
+            window.setTimeout(() => URL.revokeObjectURL(urlToRevoke), 2500);
+        }
+    };
+
+    imgElement.addEventListener('load', cleanupBlobUrl, { once: true });
+    imgElement.addEventListener('error', () => {
+        cleanupBlobUrl();
+        if (typeof onFallback === 'function') {
+            onFallback();
+        }
+    }, { once: true });
+
+    resolveCachedIconUrl(url)
+        .then((resolvedUrl) => {
+            if (!resolvedUrl) {
+                if (typeof onFallback === 'function') {
+                    onFallback();
+                }
+                return;
+            }
+
+            if (resolvedUrl.startsWith('blob:')) {
+                createdBlobUrl = resolvedUrl;
+            }
+
+            imgElement.src = resolvedUrl;
+        })
+        .catch(() => {
+            imgElement.src = url;
+        });
 }
 
 function sendClientEvent(level, message, context) {
@@ -293,8 +428,7 @@ function stopPerformanceMonitor() {
 }
 
 function sendMultiplierToBackend(value) {
-    const parsed = Number.parseFloat(value);
-    const safeValue = Number.isFinite(parsed) ? Math.max(0.01, Math.min(1.0, parsed)) : 0.5;
+    const safeValue = clampIntensity(value);
     intensityVal.textContent = `${safeValue.toFixed(2)}x`;
 
     if (isPyWebViewAvailable()) {
@@ -302,6 +436,8 @@ function sendMultiplierToBackend(value) {
             console.error('[PyWebView API Error] set_multiplier failed', err);
         });
     }
+
+    return safeValue;
 }
 
 function updateSidebarSelection(operator, weapon) {
@@ -326,19 +462,20 @@ function updateSidebarSelection(operator, weapon) {
         avatarEl.replaceChildren();
 
         const img = document.createElement('img');
-        img.src = badgeUrl;
         img.alt = initials;
         img.style.width = '100%';
         img.style.height = '100%';
         img.style.objectFit = 'cover';
         img.style.borderRadius = '50%';
         img.style.border = '2px solid var(--accent)';
-        img.addEventListener('error', () => {
+        const fallback = () => {
             avatarEl.replaceChildren();
             avatarEl.style.background = 'var(--bg-card)';
             avatarEl.textContent = initials;
-        });
+        };
+
         avatarEl.appendChild(img);
+        setImageSourceWithCache(img, badgeUrl, fallback);
     }
 
     selectedName.textContent = operator.name;
@@ -350,6 +487,19 @@ function updateSidebarSelection(operator, weapon) {
 function selectWeapon(operator, weapon) {
     selectedOperator = operator;
     selectedWeapon = weapon;
+
+    if (intensitySlider) {
+        const rememberedIntensity = getWeaponIntensity(operator, weapon);
+        let nextIntensity = rememberedIntensity;
+
+        if (nextIntensity === null) {
+            nextIntensity = clampIntensity(intensitySlider.value);
+            setWeaponIntensity(operator, weapon, nextIntensity);
+        }
+
+        intensitySlider.value = nextIntensity.toFixed(2);
+        sendMultiplierToBackend(nextIntensity);
+    }
 
     updateSidebarSelection(operator, weapon);
 
@@ -367,7 +517,22 @@ function selectWeapon(operator, weapon) {
         );
     }
 
-    requestRender();
+    syncSelectedWeaponButtons();
+}
+
+function syncSelectedWeaponButtons() {
+    const buttons = document.querySelectorAll('.weapon-btn');
+    if (!buttons || buttons.length === 0) {
+        return;
+    }
+
+    const selectedOpName = selectedOperator && selectedOperator.name ? selectedOperator.name : '';
+    const selectedWeaponName = selectedWeapon && selectedWeapon.name ? selectedWeapon.name : '';
+
+    buttons.forEach((btn) => {
+        const matches = btn.dataset.opName === selectedOpName && btn.dataset.weaponName === selectedWeaponName;
+        btn.classList.toggle('selected', matches);
+    });
 }
 
 function toggleFavorite(opName) {
@@ -389,6 +554,8 @@ function createWeaponButton(operator, weapon) {
 
     btn.type = 'button';
     btn.setAttribute('aria-label', `${operator.name} ${weapon.name} recoil profile`);
+    btn.dataset.opName = operator.name;
+    btn.dataset.weaponName = weapon.name;
 
     const left = document.createElement('div');
     left.style.display = 'flex';
@@ -401,7 +568,7 @@ function createWeaponButton(operator, weapon) {
 
     if (ENABLE_REMOTE_ASSETS) {
         const weaponImg = document.createElement('img');
-        weaponImg.src = `https://trackercdn.com/cdn/r6.tracker.network/weapons/${slugify(weapon.name)}.png`;
+        const weaponUrl = `https://trackercdn.com/cdn/r6.tracker.network/weapons/${slugify(weapon.name)}.png`;
         weaponImg.alt = '';
         weaponImg.setAttribute('aria-hidden', 'true');
         weaponImg.style.width = '28px';
@@ -409,9 +576,10 @@ function createWeaponButton(operator, weapon) {
         weaponImg.loading = 'lazy';
         weaponImg.style.objectFit = 'contain';
         weaponImg.style.filter = 'drop-shadow(0 1px 1px rgba(0,0,0,0.8))';
-        weaponImg.addEventListener('error', () => {
+        const fallback = () => {
             weaponImg.style.display = 'none';
-        });
+        };
+        setImageSourceWithCache(weaponImg, weaponUrl, fallback);
         left.appendChild(weaponImg);
     }
     left.appendChild(weaponName);
@@ -457,7 +625,7 @@ function createOperatorCard(operator) {
 
     if (ENABLE_REMOTE_ASSETS) {
         const opImg = document.createElement('img');
-        opImg.src = `https://trackercdn.com/cdn/r6.tracker.network/operators/badges/${slugify(operator.name)}.png`;
+        const opBadgeUrl = `https://trackercdn.com/cdn/r6.tracker.network/operators/badges/${slugify(operator.name)}.png`;
         opImg.alt = initials;
         opImg.style.position = 'absolute';
         opImg.style.width = '100%';
@@ -466,7 +634,7 @@ function createOperatorCard(operator) {
         opImg.style.objectFit = 'cover';
         opImg.style.transform = 'scale(1.15)';
         opImg.style.opacity = '0.9';
-        opImg.addEventListener('error', fallbackToInitials);
+        setImageSourceWithCache(opImg, opBadgeUrl, fallbackToInitials);
         avatar.appendChild(opImg);
     } else {
         fallbackToInitials();
@@ -698,7 +866,10 @@ function initializeUI() {
 
     if (intensitySlider) {
         intensitySlider.addEventListener('input', (event) => {
-            sendMultiplierToBackend(event.target.value);
+            const safeValue = sendMultiplierToBackend(event.target.value);
+            if (selectedOperator && selectedWeapon) {
+                setWeaponIntensity(selectedOperator, selectedWeapon, safeValue);
+            }
         });
         sendMultiplierToBackend(intensitySlider.value);
     }

@@ -8,7 +8,7 @@ import logging
 import re
 
 # Semantic version of the CURRENT build
-__version__ = "v1.0.12"
+__version__ = "v1.0.13"
 
 GITHUB_REPO = "mmadersbacher/RainbowSixRecoil"
 API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
