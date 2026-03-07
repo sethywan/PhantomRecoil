@@ -1,6 +1,6 @@
 #define AppName "Phantom Recoil"
 #ifndef AppVersion
-  #define AppVersion "1.0.15"
+  #define AppVersion "1.0.16"
 #endif
 #ifndef SignedUninstallerMode
   #define SignedUninstallerMode "no"
@@ -65,3 +65,33 @@ Name: "{autodesktop}\\{#AppName}"; Filename: "{app}\\{#AppExeName}"; Tasks: desk
 
 [Run]
 Filename: "{app}\\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure ForceCloseProcess(const ProcessName: string);
+var
+  ResultCode: Integer;
+begin
+  Log(Format('Attempting to close process: %s', [ProcessName]));
+  Exec(
+    ExpandConstant('{cmd}'),
+    '/C taskkill /IM "' + ProcessName + '" /F /T >nul 2>nul',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  ForceCloseProcess('Phantom_Recoil_Standalone.exe');
+  ForceCloseProcess('Phantom_Recoil.exe');
+  Result := True;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  ForceCloseProcess('Phantom_Recoil_Standalone.exe');
+  ForceCloseProcess('Phantom_Recoil.exe');
+  Result := '';
+end;
