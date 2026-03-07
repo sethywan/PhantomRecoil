@@ -10,6 +10,8 @@ let pywebviewReady = false;
 let renderScheduled = false;
 let renderToken = 0;
 let lastTabSwitchAt = 0;
+let renderInProgress = false;
+let renderQueued = false;
 
 // DOM Elements
 const grid = document.getElementById('operators-grid');
@@ -366,51 +368,94 @@ function renderEmptyState(message) {
     grid.appendChild(empty);
 }
 
+function scheduleFrame(callback) {
+    if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(callback);
+    } else {
+        window.setTimeout(callback, 16);
+    }
+}
+
+function finishRenderCycle() {
+    renderInProgress = false;
+    if (renderQueued) {
+        renderQueued = false;
+        requestRender();
+    }
+}
+
 function renderGrid() {
     if (!grid) {
         return;
     }
 
     const currentToken = ++renderToken;
+    renderInProgress = true;
 
     try {
         const filtered = getFilteredOperators();
-        const fragment = document.createDocumentFragment();
+        grid.replaceChildren();
 
         if (filtered.length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'empty-state';
-            empty.textContent = 'No operators found for the current filters.';
-            fragment.appendChild(empty);
-        } else {
-            for (const operator of filtered) {
-                // Stop work early if a newer render has been requested.
-                if (currentToken !== renderToken) {
-                    return;
-                }
-                fragment.appendChild(createOperatorCard(operator));
+            if (currentToken === renderToken) {
+                renderEmptyState('No operators found for the current filters.');
             }
+            finishRenderCycle();
+            return;
         }
 
-        if (currentToken === renderToken) {
-            grid.replaceChildren(fragment);
-        }
+        const chunkSize = 4;
+        let index = 0;
+
+        const renderChunk = () => {
+            if (currentToken !== renderToken) {
+                finishRenderCycle();
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            const max = Math.min(index + chunkSize, filtered.length);
+
+            while (index < max) {
+                fragment.appendChild(createOperatorCard(filtered[index]));
+                index += 1;
+            }
+
+            if (currentToken === renderToken) {
+                grid.appendChild(fragment);
+            }
+
+            if (index < filtered.length && currentToken === renderToken) {
+                scheduleFrame(renderChunk);
+                return;
+            }
+
+            finishRenderCycle();
+        };
+
+        scheduleFrame(renderChunk);
     } catch (err) {
         console.error('[UI Error] renderGrid failed', err);
         if (currentToken === renderToken) {
             grid.replaceChildren();
             renderEmptyState('A rendering error occurred. Please switch tabs again.');
         }
+        finishRenderCycle();
     }
 }
 
 function requestRender() {
+    if (renderInProgress) {
+        renderQueued = true;
+        return;
+    }
+
     if (renderScheduled) {
         return;
     }
 
     renderScheduled = true;
-    window.requestAnimationFrame(() => {
+    scheduleFrame(() => {
         renderScheduled = false;
         renderGrid();
     });
@@ -429,7 +474,7 @@ function initializeUI() {
     tabBtns.forEach((btn) => {
         btn.addEventListener('click', (event) => {
             const now = Date.now();
-            if (now - lastTabSwitchAt < 60) {
+            if (now - lastTabSwitchAt < 80) {
                 return;
             }
             lastTabSwitchAt = now;
