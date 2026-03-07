@@ -51,6 +51,17 @@ class TestApiValidation(unittest.TestCase):
         self.assertEqual(result.get('reason'), 'test-case')
         api.shutdown()
 
+    def test_internal_objects_are_not_public_api_attributes(self):
+        api = Api()
+
+        # Public object attributes can be recursively scanned by pywebview bridge.
+        self.assertFalse(hasattr(api, 'window'))
+        self.assertFalse(hasattr(api, 'macro'))
+        self.assertTrue(hasattr(api, '_window'))
+        self.assertTrue(hasattr(api, '_macro'))
+
+        api.shutdown()
+
 
 if __name__ == '__main__':
     unittest.main()

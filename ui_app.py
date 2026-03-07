@@ -98,8 +98,10 @@ def install_crash_hooks():
 
 class Api:
     def __init__(self):
-        self.macro = RecoilMacro()
-        self.window = None
+        # Use underscore-prefixed internals so pywebview's API scanner does not
+        # recursively traverse large native object graphs (window.native...).
+        self._macro = RecoilMacro()
+        self._window = None
         self.session_id = str(uuid.uuid4())
         self.started_at = time.time()
         self.last_ping_ts = time.time()
@@ -109,8 +111,8 @@ class Api:
         logger.info('[Startup] Session=%s | App=%s | Python=%s | Platform=%s', self.session_id, APP_TITLE, sys.version.split()[0], platform.platform())
         
         # Start the background polling thread.
-        self.macro_thread = threading.Thread(target=self.macro.start, daemon=True)
-        self.macro_thread.start()
+        self._macro_thread = threading.Thread(target=self._macro.start, daemon=True)
+        self._macro_thread.start()
 
     @staticmethod
     def _to_finite_number(value, default=0.0):
@@ -123,7 +125,7 @@ class Api:
         return number
 
     def set_window(self, window):
-        self.window = window
+        self._window = window
 
     def set_recoil(self, x, y):
         safe_x = self._to_finite_number(x, default=0.0)
@@ -133,13 +135,13 @@ class Api:
         safe_y = max(-100.0, min(100.0, safe_y))
 
         logger.info("[Backend] Profile selected -> X:%s, Y:%s", safe_x, safe_y)
-        self.macro.update_recoil(safe_x, safe_y)
+        self._macro.update_recoil(safe_x, safe_y)
 
     def set_multiplier(self, mult):
         safe_mult = self._to_finite_number(mult, default=0.5)
         safe_mult = max(0.01, min(1.0, safe_mult))
         logger.info("[Backend] Intensity set -> %s", safe_mult)
-        self.macro.set_multiplier(safe_mult)
+        self._macro.set_multiplier(safe_mult)
 
     def get_caps_state(self):
         """Called by JavaScript polling to safely read CapsLock state."""
@@ -187,7 +189,7 @@ class Api:
         return {
             'since_ping_seconds': round(since_ping, 3),
             'last_ping_payload': payload,
-            'macro': self.macro.get_state_snapshot(),
+            'macro': self._macro.get_state_snapshot(),
             'uptime_seconds': round(time.time() - self.started_at, 3),
             'threads': threading.active_count(),
             'memory_mb': _safe_process_memory_mb(),
@@ -211,10 +213,10 @@ class Api:
 
     def shutdown(self):
         logger.info("[Backend] Shutdown requested, stopping macro loop...")
-        self.macro.stop()
-        if self.macro_thread.is_alive():
-            self.macro_thread.join(timeout=2.0)
-            if self.macro_thread.is_alive():
+        self._macro.stop()
+        if self._macro_thread.is_alive():
+            self._macro_thread.join(timeout=2.0)
+            if self._macro_thread.is_alive():
                 logger.warning("[Backend] Macro thread did not stop within timeout.")
             else:
                 logger.info("[Backend] Macro thread stopped.")
