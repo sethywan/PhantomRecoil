@@ -38,6 +38,10 @@
    - `Get-AuthenticodeSignature .\PhantomRecoilSetup_vX.Y.Z.exe`
    - `Get-AuthenticodeSignature .\Phantom_Recoil_Standalone.exe`
 4. Publish only if signature status is `Valid`.
+5. For immediate SmartScreen trust on fresh downloads, use an EV code-signing certificate.
+6. Keep the publisher identity stable across releases (same legal entity name and certificate chain).
+7. Optional helper script for manual release signing:
+   - `SIGN_RELEASE.bat X.Y.Z`
 
 ## Post-Release Check
 1. Install/download from the public release as a fresh user.

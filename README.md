@@ -12,6 +12,12 @@ Phantom Recoil is a Windows desktop application for recoil profile selection wit
 
 If Windows SmartScreen appears, verify that you downloaded the file from the official GitHub repository above.
 
+## SmartScreen and Trusted Publisher
+- Unsigned binaries are commonly flagged by Windows SmartScreen as "unknown app".
+- To be recognized as trusted publisher, releases should be Authenticode-signed.
+- For immediate SmartScreen trust on first downloads, use an EV code-signing certificate.
+- Keep signer identity consistent across releases (same legal publisher).
+
 ## Alternative: Portable EXE
 If you do not want to install, download:
 - `Phantom_Recoil_Standalone.exe`
@@ -35,6 +41,16 @@ Get-AuthenticodeSignature .\PhantomRecoilSetup_vX.Y.Z.exe
 ```
 
 Expected: `Status = Valid`.
+
+For maintainers, a helper script is available for local release signing:
+
+```bat
+SIGN_RELEASE.bat X.Y.Z
+```
+
+Required environment variables:
+- `SIGN_PFX_FILE` (path to PFX certificate)
+- `SIGN_PFX_PASSWORD` (PFX password)
 
 ## Features
 - Operator and weapon profile UI.
