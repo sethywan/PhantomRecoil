@@ -60,4 +60,5 @@ if __name__ == '__main__':
         background_color='#0f1115'
     )
     api.set_window(window)
-    webview.start()
+    # private_mode=False ensures localStorage (favorites, DPI) isn't wiped on exit
+    webview.start(private_mode=False)
