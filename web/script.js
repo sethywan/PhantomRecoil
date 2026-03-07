@@ -19,6 +19,10 @@ let heartbeatInFlight = false;
 let appInfoLoaded = false;
 let lastClientEventAt = 0;
 const CLIENT_EVENT_MIN_INTERVAL_MS = 400;
+const ENABLE_REMOTE_ASSETS = false;
+const TAB_SWITCH_DEBOUNCE_MS = 220;
+let lastDiagDumpAt = 0;
+const DIAG_DUMP_COOLDOWN_MS = 15000;
 
 // DOM Elements
 const grid = document.getElementById('operators-grid');
@@ -92,6 +96,26 @@ function sendClientEvent(level, message, context) {
     window.pywebview.api.log_client_event(level, message, context || {}).catch(() => {
         // Ignore telemetry failures to keep UI path non-blocking.
     });
+}
+
+function maybeRequestDiagDump(reason, context) {
+    if (!isPyWebViewAvailable()) {
+        return;
+    }
+
+    const now = Date.now();
+    if (now - lastDiagDumpAt < DIAG_DUMP_COOLDOWN_MS) {
+        return;
+    }
+    lastDiagDumpAt = now;
+
+    window.pywebview.api.dump_diagnostics(reason)
+        .then(() => {
+            sendClientEvent('warning', 'diagnostic dump requested', context || {});
+        })
+        .catch((err) => {
+            console.error('[PyWebView API Error] dump_diagnostics failed', err);
+        });
 }
 
 function updateVersionLabel(appInfo) {
@@ -251,6 +275,12 @@ function startPerformanceMonitor() {
                 renderQueued,
                 searchLength: searchQuery.length,
             });
+            if (drift > 1200) {
+                maybeRequestDiagDump('event-loop-lag', {
+                    driftMs: drift,
+                    tab: currentTab,
+                });
+            }
         }
     }, 1000);
 }
@@ -286,25 +316,30 @@ function updateSidebarSelection(operator, weapon) {
     }
 
     const initials = operator.name.substring(0, 2).toUpperCase();
-    const badgeUrl = `https://trackercdn.com/cdn/r6.tracker.network/operators/badges/${slugify(operator.name)}.png`;
-
     avatarEl.replaceChildren();
-    avatarEl.style.background = 'transparent';
+    avatarEl.style.background = 'var(--bg-card)';
+    avatarEl.textContent = initials;
 
-    const img = document.createElement('img');
-    img.src = badgeUrl;
-    img.alt = initials;
-    img.style.width = '100%';
-    img.style.height = '100%';
-    img.style.objectFit = 'cover';
-    img.style.borderRadius = '50%';
-    img.style.border = '2px solid var(--accent)';
-    img.addEventListener('error', () => {
+    if (ENABLE_REMOTE_ASSETS) {
+        const badgeUrl = `https://trackercdn.com/cdn/r6.tracker.network/operators/badges/${slugify(operator.name)}.png`;
+        avatarEl.style.background = 'transparent';
         avatarEl.replaceChildren();
-        avatarEl.style.background = 'var(--bg-card)';
-        avatarEl.textContent = initials;
-    });
-    avatarEl.appendChild(img);
+
+        const img = document.createElement('img');
+        img.src = badgeUrl;
+        img.alt = initials;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+        img.style.borderRadius = '50%';
+        img.style.border = '2px solid var(--accent)';
+        img.addEventListener('error', () => {
+            avatarEl.replaceChildren();
+            avatarEl.style.background = 'var(--bg-card)';
+            avatarEl.textContent = initials;
+        });
+        avatarEl.appendChild(img);
+    }
 
     selectedName.textContent = operator.name;
     selectedWeaponName.textContent = weapon.name;
@@ -360,24 +395,25 @@ function createWeaponButton(operator, weapon) {
     left.style.alignItems = 'center';
     left.style.gap = '8px';
 
-    const weaponImg = document.createElement('img');
-    weaponImg.src = `https://trackercdn.com/cdn/r6.tracker.network/weapons/${slugify(weapon.name)}.png`;
-    weaponImg.alt = '';
-    weaponImg.setAttribute('aria-hidden', 'true');
-    weaponImg.style.width = '28px';
-    weaponImg.style.height = '14px';
-    weaponImg.loading = 'lazy';
-    weaponImg.style.objectFit = 'contain';
-    weaponImg.style.filter = 'drop-shadow(0 1px 1px rgba(0,0,0,0.8))';
-    weaponImg.addEventListener('error', () => {
-        weaponImg.style.display = 'none';
-    });
-
     const weaponName = document.createElement('span');
     weaponName.className = 'weapon-name';
     weaponName.textContent = weapon.name;
 
-    left.appendChild(weaponImg);
+    if (ENABLE_REMOTE_ASSETS) {
+        const weaponImg = document.createElement('img');
+        weaponImg.src = `https://trackercdn.com/cdn/r6.tracker.network/weapons/${slugify(weapon.name)}.png`;
+        weaponImg.alt = '';
+        weaponImg.setAttribute('aria-hidden', 'true');
+        weaponImg.style.width = '28px';
+        weaponImg.style.height = '14px';
+        weaponImg.loading = 'lazy';
+        weaponImg.style.objectFit = 'contain';
+        weaponImg.style.filter = 'drop-shadow(0 1px 1px rgba(0,0,0,0.8))';
+        weaponImg.addEventListener('error', () => {
+            weaponImg.style.display = 'none';
+        });
+        left.appendChild(weaponImg);
+    }
     left.appendChild(weaponName);
 
     const stats = document.createElement('span');
@@ -410,25 +446,31 @@ function createOperatorCard(operator) {
     avatar.style.background = 'var(--bg-dark)';
 
     const initials = operator.name.substring(0, 2).toUpperCase();
-    const opImg = document.createElement('img');
-    opImg.src = `https://trackercdn.com/cdn/r6.tracker.network/operators/badges/${slugify(operator.name)}.png`;
-    opImg.alt = initials;
-    opImg.style.position = 'absolute';
-    opImg.style.width = '100%';
-    opImg.style.height = '100%';
-    opImg.loading = 'lazy';
-    opImg.style.objectFit = 'cover';
-    opImg.style.transform = 'scale(1.15)';
-    opImg.style.opacity = '0.9';
-    opImg.addEventListener('error', () => {
+    const fallbackToInitials = () => {
         avatar.replaceChildren();
         const fallback = document.createElement('span');
         fallback.style.color = 'var(--text-muted)';
         fallback.style.fontWeight = '600';
         fallback.textContent = initials;
         avatar.appendChild(fallback);
-    });
-    avatar.appendChild(opImg);
+    };
+
+    if (ENABLE_REMOTE_ASSETS) {
+        const opImg = document.createElement('img');
+        opImg.src = `https://trackercdn.com/cdn/r6.tracker.network/operators/badges/${slugify(operator.name)}.png`;
+        opImg.alt = initials;
+        opImg.style.position = 'absolute';
+        opImg.style.width = '100%';
+        opImg.style.height = '100%';
+        opImg.loading = 'lazy';
+        opImg.style.objectFit = 'cover';
+        opImg.style.transform = 'scale(1.15)';
+        opImg.style.opacity = '0.9';
+        opImg.addEventListener('error', fallbackToInitials);
+        avatar.appendChild(opImg);
+    } else {
+        fallbackToInitials();
+    }
 
     const nameEl = document.createElement('h3');
     nameEl.style.fontSize = '14px';
@@ -589,6 +631,10 @@ function renderGrid() {
             renderInProgress,
             renderQueued,
         });
+        maybeRequestDiagDump('render-grid-failed', {
+            tab: currentTab,
+            searchLength: searchQuery.length,
+        });
         if (currentToken === renderToken) {
             grid.replaceChildren();
             renderEmptyState('A rendering error occurred. Please switch tabs again.');
@@ -628,7 +674,7 @@ function initializeUI() {
     tabBtns.forEach((btn) => {
         btn.addEventListener('click', (event) => {
             const now = Date.now();
-            if (now - lastTabSwitchAt < 150) {
+            if (now - lastTabSwitchAt < TAB_SWITCH_DEBOUNCE_MS) {
                 return;
             }
             lastTabSwitchAt = now;
@@ -673,11 +719,17 @@ window.addEventListener('error', (event) => {
     sendClientEvent('error', 'Unhandled error', {
         message: String(event.message || ''),
     });
+    maybeRequestDiagDump('window-error', {
+        message: String(event.message || ''),
+    });
 });
 
 window.addEventListener('unhandledrejection', (event) => {
     console.error('[UI Error] Unhandled promise rejection', event.reason);
     sendClientEvent('error', 'Unhandled promise rejection', {
+        reason: String(event.reason || ''),
+    });
+    maybeRequestDiagDump('unhandled-rejection', {
         reason: String(event.reason || ''),
     });
 });

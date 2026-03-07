@@ -24,6 +24,7 @@ DIAGNOSTIC_MODE = True
 DIAGNOSTIC_DUMP_SECONDS = 45
 PROCESS_SNAPSHOT_SECONDS = 10
 APP_TITLE = f"Phantom Recoil {updater.__version__}"
+DIAG_DUMP_FILE = None
 
 
 def _safe_process_memory_mb():
@@ -193,6 +194,21 @@ class Api:
             'session_id': self.session_id,
         }
 
+    def dump_diagnostics(self, reason='manual-request'):
+        """Force a snapshot + traceback dump to aid freeze analysis."""
+        safe_reason = str(reason or 'manual-request')[:200]
+        status = self.get_diag_status()
+        logger.warning('[Diag] Forced diagnostic dump requested: %s | status=%s', safe_reason, status)
+        try:
+            if DIAG_DUMP_FILE is not None:
+                faulthandler.dump_traceback(file=DIAG_DUMP_FILE, all_threads=True)
+            else:
+                faulthandler.dump_traceback(all_threads=True)
+        except Exception as err:
+            logger.exception('[Diag] dump_diagnostics failed: %s', err)
+            return {'ok': False, 'error': str(err)}
+        return {'ok': True, 'reason': safe_reason}
+
     def shutdown(self):
         logger.info("[Backend] Shutdown requested, stopping macro loop...")
         self.macro.stop()
@@ -215,7 +231,10 @@ def start_diagnostic_watchdog(api):
                 if since_ping > 15:
                     logger.warning('[Diag] Frontend heartbeat stale: %.2fs | macro=%s', since_ping, status['macro'])
                     # Force immediate thread dump when UI heartbeat stalls.
-                    faulthandler.dump_traceback(all_threads=True)
+                    if DIAG_DUMP_FILE is not None:
+                        faulthandler.dump_traceback(file=DIAG_DUMP_FILE, all_threads=True)
+                    else:
+                        faulthandler.dump_traceback(all_threads=True)
 
                 now = time.time()
                 if now - last_snapshot_ts >= PROCESS_SNAPSHOT_SECONDS:
@@ -240,9 +259,11 @@ if __name__ == '__main__':
 
     if DIAGNOSTIC_MODE:
         try:
-            with open(log_path, 'a', encoding='utf-8') as dump_file:
-                faulthandler.enable(file=dump_file, all_threads=True)
-                faulthandler.dump_traceback_later(DIAGNOSTIC_DUMP_SECONDS, repeat=True, file=dump_file)
+            # Keep the file handle open for the full process lifetime so faulthandler
+            # never writes into a closed stream.
+            DIAG_DUMP_FILE = open(log_path, 'a', encoding='utf-8')
+            faulthandler.enable(file=DIAG_DUMP_FILE, all_threads=True)
+            faulthandler.dump_traceback_later(DIAGNOSTIC_DUMP_SECONDS, repeat=True, file=DIAG_DUMP_FILE)
             logger.info('[Diag] faulthandler enabled with %ss interval.', DIAGNOSTIC_DUMP_SECONDS)
         except Exception as err:
             logger.warning('[Diag] Failed to enable faulthandler: %s', err)
@@ -298,10 +319,20 @@ if __name__ == '__main__':
     # private_mode=False ensures localStorage (favorites, DPI) isn't wiped on exit
     try:
         webview.start(private_mode=False)
+    except Exception as err:
+        logger.exception('[Startup] webview.start failed: %s', err)
+        raise
     finally:
         api.shutdown()
         if DIAGNOSTIC_MODE:
             try:
                 faulthandler.cancel_dump_traceback_later()
+            except Exception:
+                pass
+            try:
+                if DIAG_DUMP_FILE is not None:
+                    DIAG_DUMP_FILE.flush()
+                    DIAG_DUMP_FILE.close()
+                    DIAG_DUMP_FILE = None
             except Exception:
                 pass

@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 from ui_app import Api
 
@@ -39,6 +40,15 @@ class TestApiValidation(unittest.TestCase):
         self.assertIn('threads', status)
         self.assertIn('session_id', status)
 
+        api.shutdown()
+
+    def test_dump_diagnostics_api(self):
+        api = Api()
+        with mock.patch('ui_app.faulthandler.dump_traceback'):
+            result = api.dump_diagnostics('test-case')
+
+        self.assertTrue(result.get('ok'))
+        self.assertEqual(result.get('reason'), 'test-case')
         api.shutdown()
 
 
