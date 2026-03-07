@@ -36,8 +36,8 @@ class Api:
             return False
 
 if __name__ == '__main__':
-    # 1. Check for GitHub Updates immediately before loading the UI
-    updater.run_auto_updater()
+    # 1. Start GitHub Updater in background thread! This prevents the 5-sec API timeout from freezing the app start.
+    threading.Thread(target=updater.run_auto_updater, daemon=True).start()
 
     api = Api()
     
@@ -48,16 +48,18 @@ if __name__ == '__main__':
         base_path = os.path.dirname(__file__)
         
     html_file = os.path.join(base_path, 'web', 'index.html')
+    icon_file = os.path.join(base_path, 'icon.ico')
     
     # Create the pywebview OS Window wrapping our beautiful web folder
     window = webview.create_window(
-        'R6 Recoil Controller', 
+        'Phantom Recoil', 
         url=html_file, 
         js_api=api,
         width=1100, 
         height=700,
         min_size=(900, 550),
-        background_color='#0f1115'
+        background_color='#09090b',
+        icon=icon_file
     )
     api.set_window(window)
     # private_mode=False ensures localStorage (favorites, DPI) isn't wiped on exit

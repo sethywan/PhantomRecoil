@@ -70,10 +70,10 @@ start "" "{current_exe}"
 del "%~f0"
 ''')
         
-        # Launch the batch script detached and exit the current app
+        # Launch the batch script detached and HARD-KILL the entire application tree
         print("[Updater] Handing off to updater batch script...")
         subprocess.Popen(bat_path, creationflags=subprocess.CREATE_NO_WINDOW)
-        sys.exit(0)
+        os._exit(0)
         
     except Exception as e:
         print(f"[Updater] Update failed: {e}")
