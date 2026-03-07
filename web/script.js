@@ -7,6 +7,9 @@ let selectedOperator = null;
 let selectedWeapon = null;
 let capsPollIntervalId = null;
 let pywebviewReady = false;
+let renderScheduled = false;
+let renderToken = 0;
+let lastTabSwitchAt = 0;
 
 // DOM Elements
 const grid = document.getElementById('operators-grid');
@@ -187,7 +190,7 @@ function selectWeapon(operator, weapon) {
         );
     }
 
-    renderGrid();
+    requestRender();
 }
 
 function toggleFavorite(opName) {
@@ -197,7 +200,7 @@ function toggleFavorite(opName) {
         favorites.push(opName);
     }
     saveFavorites();
-    renderGrid();
+    requestRender();
 }
 
 function createWeaponButton(operator, weapon) {
@@ -221,6 +224,7 @@ function createWeaponButton(operator, weapon) {
     weaponImg.setAttribute('aria-hidden', 'true');
     weaponImg.style.width = '28px';
     weaponImg.style.height = '14px';
+    weaponImg.loading = 'lazy';
     weaponImg.style.objectFit = 'contain';
     weaponImg.style.filter = 'drop-shadow(0 1px 1px rgba(0,0,0,0.8))';
     weaponImg.addEventListener('error', () => {
@@ -270,6 +274,7 @@ function createOperatorCard(operator) {
     opImg.style.position = 'absolute';
     opImg.style.width = '100%';
     opImg.style.height = '100%';
+    opImg.loading = 'lazy';
     opImg.style.objectFit = 'cover';
     opImg.style.transform = 'scale(1.15)';
     opImg.style.opacity = '0.9';
@@ -309,7 +314,8 @@ function createOperatorCard(operator) {
 
     const weaponsList = document.createElement('div');
     weaponsList.className = 'weapons-list';
-    operator.weapons.forEach((weapon) => {
+    const weapons = Array.isArray(operator.weapons) ? operator.weapons : [];
+    weapons.forEach((weapon) => {
         weaponsList.appendChild(createWeaponButton(operator, weapon));
     });
 
@@ -335,7 +341,7 @@ function getFilteredOperators() {
     if (searchQuery) {
         filtered = filtered.filter((op) =>
             op.name.toLowerCase().includes(searchQuery)
-            || op.weapons.some((weapon) => weapon.name.toLowerCase().includes(searchQuery))
+            || (Array.isArray(op.weapons) && op.weapons.some((weapon) => weapon.name.toLowerCase().includes(searchQuery)))
         );
     }
 
@@ -365,31 +371,69 @@ function renderGrid() {
         return;
     }
 
-    grid.replaceChildren();
-    const filtered = getFilteredOperators();
+    const currentToken = ++renderToken;
 
-    if (filtered.length === 0) {
-        renderEmptyState('No operators found for the current filters.');
+    try {
+        const filtered = getFilteredOperators();
+        const fragment = document.createDocumentFragment();
+
+        if (filtered.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'empty-state';
+            empty.textContent = 'No operators found for the current filters.';
+            fragment.appendChild(empty);
+        } else {
+            for (const operator of filtered) {
+                // Stop work early if a newer render has been requested.
+                if (currentToken !== renderToken) {
+                    return;
+                }
+                fragment.appendChild(createOperatorCard(operator));
+            }
+        }
+
+        if (currentToken === renderToken) {
+            grid.replaceChildren(fragment);
+        }
+    } catch (err) {
+        console.error('[UI Error] renderGrid failed', err);
+        if (currentToken === renderToken) {
+            grid.replaceChildren();
+            renderEmptyState('A rendering error occurred. Please switch tabs again.');
+        }
+    }
+}
+
+function requestRender() {
+    if (renderScheduled) {
         return;
     }
 
-    filtered.forEach((operator) => {
-        grid.appendChild(createOperatorCard(operator));
+    renderScheduled = true;
+    window.requestAnimationFrame(() => {
+        renderScheduled = false;
+        renderGrid();
     });
 }
 
 function initializeUI() {
-    renderGrid();
+    requestRender();
 
     if (searchInput) {
         searchInput.addEventListener('input', (event) => {
             searchQuery = String(event.target.value || '').toLowerCase();
-            renderGrid();
+            requestRender();
         });
     }
 
     tabBtns.forEach((btn) => {
         btn.addEventListener('click', (event) => {
+            const now = Date.now();
+            if (now - lastTabSwitchAt < 60) {
+                return;
+            }
+            lastTabSwitchAt = now;
+
             tabBtns.forEach((item) => {
                 item.classList.remove('active');
                 item.setAttribute('aria-selected', 'false');
@@ -397,7 +441,7 @@ function initializeUI() {
             event.currentTarget.classList.add('active');
             event.currentTarget.setAttribute('aria-selected', 'true');
             currentTab = String(event.currentTarget.dataset.tab || 'attackers');
-            renderGrid();
+            requestRender();
         });
     });
 
@@ -418,6 +462,14 @@ function initializeUI() {
         });
     }
 }
+
+window.addEventListener('error', (event) => {
+    console.error('[UI Error] Unhandled error', event.error || event.message);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('[UI Error] Unhandled promise rejection', event.reason);
+});
 
 window.addEventListener('pywebviewready', () => {
     pywebviewReady = true;
