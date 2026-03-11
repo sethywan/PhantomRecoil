@@ -10,14 +10,43 @@ class TestApiValidation(unittest.TestCase):
         self.assertEqual(Api._to_finite_number('not-a-number', default=7), 7.0)
         self.assertEqual(Api._to_finite_number(float('inf'), default=3), 3.0)
 
-    def test_caps_state_api_method_exists(self):
+    def test_hotkey_state_api_method_exists(self):
         api = Api()
-        self.assertTrue(hasattr(api, 'get_caps_state'))
+        result = api.get_hotkey_state()
+        self.assertIsInstance(result, dict)
+        self.assertIn('active', result)
+        self.assertIn('game_running', result)
+        self.assertIsInstance(result['active'], bool)
+        self.assertIsInstance(result['game_running'], bool)
+        api.shutdown()
 
-        # Must not raise and should return a bool-compatible value.
-        value = api.get_caps_state()
-        self.assertIsInstance(value, bool)
+    def test_get_hotkey_returns_vk_and_name(self):
+        api = Api()
+        result = api.get_hotkey()
+        self.assertIn('vk_code', result)
+        self.assertIn('name', result)
+        self.assertIsInstance(result['vk_code'], int)
+        self.assertIsInstance(result['name'], str)
+        api.shutdown()
 
+    def test_set_hotkey_accepts_valid_vk(self):
+        api = Api()
+        result = api.set_hotkey(0x71)  # F2
+        self.assertTrue(result.get('ok'))
+        self.assertEqual(result.get('vk_code'), 0x71)
+        self.assertEqual(result.get('name'), 'F2')
+        api.shutdown()
+
+    def test_set_hotkey_rejects_invalid_vk(self):
+        api = Api()
+        result = api.set_hotkey(0x41)  # 'A' — not allowed
+        self.assertFalse(result.get('ok'))
+        api.shutdown()
+
+    def test_set_hotkey_rejects_non_numeric(self):
+        api = Api()
+        result = api.set_hotkey('not-a-number')
+        self.assertFalse(result.get('ok'))
         api.shutdown()
 
     def test_app_info_includes_version_and_title(self):

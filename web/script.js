@@ -25,7 +25,7 @@ let userDpi = loadDpi();
 let weaponIntensityMap = loadWeaponIntensityMap();
 let selectedOperator = null;
 let selectedWeapon = null;
-let capsPollIntervalId = null;
+let hotkeyPollIntervalId = null;
 let pywebviewReady = false;
 let renderScheduled = false;
 let renderToken = 0;
@@ -34,7 +34,7 @@ let renderInProgress = false;
 let renderQueued = false;
 let diagIntervalId = null;
 let perfIntervalId = null;
-let capsRequestInFlight = false;
+let hotkeyRequestInFlight = false;
 let heartbeatInFlight = false;
 let appInfoLoaded = false;
 let lastClientEventAt = 0;
@@ -280,14 +280,25 @@ function startHotkeyCapture() {
 
     const onKeyDown = (event) => {
         event.preventDefault();
-        const vk = KEY_TO_VK[event.key];
-        if (vk !== undefined) {
-            applyHotkey(vk);
+
+        if (event.key === 'Escape') {
+            document.removeEventListener('keydown', onKeyDown);
+            stopHotkeyCapture();
+            return;
         }
+
+        const vk = KEY_TO_VK[event.key];
+        if (vk === undefined) {
+            // Unsupported key — keep listening.
+            return;
+        }
+
+        document.removeEventListener('keydown', onKeyDown);
+        applyHotkey(vk);
         stopHotkeyCapture();
     };
 
-    document.addEventListener('keydown', onKeyDown, { once: true });
+    document.addEventListener('keydown', onKeyDown);
 
     // Store cleanup ref on the button so Cancel can remove the listener.
     const btn2 = document.getElementById('hotkey-capture-btn');
@@ -317,6 +328,18 @@ function applyHotkey(vk) {
     sendClientEvent('info', 'hotkey changed', { vk });
 }
 
+// ── Toast notifications ───────────────────────────────────────────────────────
+
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    window.setTimeout(() => toast.remove(), 2600);
+}
+
 // ── Settings export / import ──────────────────────────────────────────────────
 
 function exportSettings() {
@@ -336,6 +359,7 @@ function exportSettings() {
     a.click();
     document.body.removeChild(a);
     window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showToast('Settings exported', 'success');
     sendClientEvent('info', 'settings exported', {});
 }
 
@@ -367,10 +391,12 @@ function importSettings(file) {
                 if (ALLOWED_VKS.has(vk)) applyHotkey(vk);
             }
 
+            showToast('Settings imported', 'success');
             sendClientEvent('info', 'settings imported', {});
             requestRender();
         } catch (err) {
             console.error('[Import] Failed to parse settings file', err);
+            showToast('Import failed — invalid file', 'error');
             sendClientEvent('error', 'settings import failed', { reason: String(err) });
         }
     };
@@ -493,62 +519,67 @@ function slugify(value) {
     return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-function setStatusIndicator(isOn) {
+function setStatusIndicator(state) {
     const indicator = document.getElementById('status-indicator');
     const text = document.getElementById('status-text');
     if (!indicator || !text) {
         return;
     }
 
-    if (isOn) {
-        indicator.classList.remove('idle');
-        indicator.classList.add('active');
+    // state is either a bool (legacy) or {active, game_running}
+    const active = typeof state === 'object' ? Boolean(state.active) : Boolean(state);
+    const gameRunning = typeof state === 'object' ? state.game_running !== false : true;
+
+    if (active && gameRunning) {
+        indicator.className = 'status active';
         text.textContent = 'ON';
+    } else if (active && !gameRunning) {
+        indicator.className = 'status idle';
+        text.textContent = 'NO GAME';
     } else {
-        indicator.classList.remove('active');
-        indicator.classList.add('idle');
+        indicator.className = 'status idle';
         text.textContent = 'OFF';
     }
 }
 
-function startCapsPolling() {
+function startHotkeyPolling() {
     if (!isPyWebViewAvailable()) {
         return;
     }
-    if (capsPollIntervalId !== null) {
+    if (hotkeyPollIntervalId !== null) {
         return;
     }
 
-    capsPollIntervalId = window.setInterval(() => {
+    hotkeyPollIntervalId = window.setInterval(() => {
         if (!isPyWebViewAvailable()) {
             setStatusIndicator(false);
             return;
         }
 
-        if (capsRequestInFlight) {
+        if (hotkeyRequestInFlight) {
             return;
         }
 
-        capsRequestInFlight = true;
+        hotkeyRequestInFlight = true;
 
-        window.pywebview.api.get_caps_state()
-            .then((isOn) => setStatusIndicator(Boolean(isOn)))
+        window.pywebview.api.get_hotkey_state()
+            .then((state) => setStatusIndicator(state))
             .catch((err) => {
-                console.error('[PyWebView API Error] get_caps_state failed', err);
+                console.error('[PyWebView API Error] get_hotkey_state failed', err);
                 setStatusIndicator(false);
             })
             .finally(() => {
-                capsRequestInFlight = false;
+                hotkeyRequestInFlight = false;
             });
     }, 900);
 }
 
-function stopCapsPolling() {
-    if (capsPollIntervalId !== null) {
-        window.clearInterval(capsPollIntervalId);
-        capsPollIntervalId = null;
+function stopHotkeyPolling() {
+    if (hotkeyPollIntervalId !== null) {
+        window.clearInterval(hotkeyPollIntervalId);
+        hotkeyPollIntervalId = null;
     }
-    capsRequestInFlight = false;
+    hotkeyRequestInFlight = false;
 }
 
 function startPerformanceMonitor() {
@@ -1100,7 +1131,7 @@ window.addEventListener('pywebviewready', () => {
     sendClientEvent('info', 'pywebview ready', {});
     fetchAppInfo();
     startDiagnosticHeartbeat();
-    startCapsPolling();
+    startHotkeyPolling();
     startPerformanceMonitor();
     if (intensitySlider) {
         sendMultiplierToBackend(intensitySlider.value);
@@ -1113,7 +1144,7 @@ window.addEventListener('pywebviewready', () => {
 
 window.addEventListener('beforeunload', () => {
     stopDiagnosticHeartbeat();
-    stopCapsPolling();
+    stopHotkeyPolling();
     stopPerformanceMonitor();
     pywebviewReady = false;
 });
@@ -1122,7 +1153,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeUI();
     if (pywebviewReady) {
         fetchAppInfo();
-        startCapsPolling();
+        startHotkeyPolling();
         startPerformanceMonitor();
     }
 });

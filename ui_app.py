@@ -143,12 +143,15 @@ class Api:
         logger.info("[Backend] Intensity set -> %s", safe_mult)
         self._macro.set_multiplier(safe_mult)
 
-    def get_caps_state(self):
-        """Called by JavaScript polling to safely read CapsLock state."""
+    def get_hotkey_state(self):
+        """Called by JavaScript polling to read the active hotkey state and game status."""
         try:
-            return bool(ctypes.windll.user32.GetKeyState(win32con.VK_CAPITAL) & 0x0001)
+            with self._macro._state_lock:
+                vk = self._macro.hotkey_vk
+            active = self._macro._check_hotkey_active(vk)
+            return {'active': active, 'game_running': self._macro._game_running}
         except Exception:
-            return False
+            return {'active': False, 'game_running': True}
 
     def ping(self, payload=None):
         with self._ping_lock:
