@@ -46,6 +46,10 @@ let lastDiagDumpAt = 0;
 const DIAG_DUMP_COOLDOWN_MS = 15000;
 let currentHotkeyVk = loadHotkeyVk();
 let hotkeyListening = false;
+let ambientPointerFramePending = false;
+let ambientPointerX = Math.round(window.innerWidth * 0.72);
+let ambientPointerY = Math.round(window.innerHeight * 0.34);
+let tiltActiveCard = null;
 
 // DOM Elements
 const grid = document.getElementById('operators-grid');
@@ -519,6 +523,96 @@ function slugify(value) {
     return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+function applyAmbientPointer() {
+    ambientPointerFramePending = false;
+    const x = Math.max(0, Math.min(window.innerWidth, ambientPointerX));
+    const y = Math.max(0, Math.min(window.innerHeight, ambientPointerY));
+    const root = document.documentElement;
+    root.style.setProperty('--pointer-x', `${x}px`);
+    root.style.setProperty('--pointer-y', `${y}px`);
+}
+
+function queueAmbientPointerUpdate(clientX, clientY) {
+    ambientPointerX = clientX;
+    ambientPointerY = clientY;
+    if (ambientPointerFramePending) {
+        return;
+    }
+    ambientPointerFramePending = true;
+    scheduleFrame(applyAmbientPointer);
+}
+
+function initAmbientPointerTracking() {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        return;
+    }
+
+    queueAmbientPointerUpdate(ambientPointerX, ambientPointerY);
+
+    window.addEventListener('pointermove', (event) => {
+        queueAmbientPointerUpdate(event.clientX, event.clientY);
+    }, { passive: true });
+
+    window.addEventListener('resize', () => {
+        queueAmbientPointerUpdate(
+            Math.round(window.innerWidth * 0.72),
+            Math.round(window.innerHeight * 0.34),
+        );
+    });
+}
+
+function resetTilt(card) {
+    if (!card) {
+        return;
+    }
+    card.style.setProperty('--tilt-x', '0deg');
+    card.style.setProperty('--tilt-y', '0deg');
+}
+
+function initCardTilt() {
+    if (!grid) {
+        return;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        return;
+    }
+    if (window.matchMedia && !window.matchMedia('(pointer: fine)').matches) {
+        return;
+    }
+
+    grid.addEventListener('pointermove', (event) => {
+        const card = event.target.closest('.op-group');
+        if (!card || !grid.contains(card)) {
+            if (tiltActiveCard) {
+                resetTilt(tiltActiveCard);
+                tiltActiveCard = null;
+            }
+            return;
+        }
+
+        if (tiltActiveCard && tiltActiveCard !== card) {
+            resetTilt(tiltActiveCard);
+        }
+        tiltActiveCard = card;
+
+        const rect = card.getBoundingClientRect();
+        const relX = (event.clientX - rect.left) / Math.max(rect.width, 1) - 0.5;
+        const relY = (event.clientY - rect.top) / Math.max(rect.height, 1) - 0.5;
+        const tiltX = Math.max(-4.5, Math.min(4.5, -relY * 7));
+        const tiltY = Math.max(-5.5, Math.min(5.5, relX * 8));
+
+        card.style.setProperty('--tilt-x', `${tiltX.toFixed(2)}deg`);
+        card.style.setProperty('--tilt-y', `${tiltY.toFixed(2)}deg`);
+    }, { passive: true });
+
+    grid.addEventListener('pointerleave', () => {
+        if (tiltActiveCard) {
+            resetTilt(tiltActiveCard);
+            tiltActiveCard = null;
+        }
+    });
+}
+
 function setStatusIndicator(state) {
     const indicator = document.getElementById('status-indicator');
     const text = document.getElementById('status-text');
@@ -959,7 +1053,9 @@ function renderGrid() {
                 const max = Math.min(index + chunkSize, filtered.length);
 
                 while (index < max) {
-                    fragment.appendChild(createOperatorCard(filtered[index]));
+                    const operatorCard = createOperatorCard(filtered[index]);
+                    operatorCard.style.setProperty('--reveal-delay', `${(index % 12) * 34}ms`);
+                    fragment.appendChild(operatorCard);
                     index += 1;
                 }
 
@@ -1022,6 +1118,8 @@ function requestRender() {
 function initializeUI() {
     sendClientEvent('info', 'ui initialized', { tab: currentTab });
     updateHotkeyDisplay();
+    initAmbientPointerTracking();
+    initCardTilt();
     requestRender();
 
     if (searchInput) {
