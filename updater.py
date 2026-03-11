@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 
 # Semantic version of the CURRENT build
-__version__ = "v1.0.20"
+__version__ = "v1.0.21"
 
 GITHUB_REPO = "mmadersbacher/PhantomRecoil"
 API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -289,6 +289,17 @@ def _start_silent_installer(installer_path):
     return True
 
 
+def _launch_user_local_copy(downloaded_exe, exe_name):
+    base = os.getenv("LOCALAPPDATA") or tempfile.gettempdir()
+    update_dir = os.path.join(base, "PhantomRecoil", "updates")
+    os.makedirs(update_dir, exist_ok=True)
+
+    target_exe = os.path.join(update_dir, exe_name)
+    shutil.copy2(downloaded_exe, target_exe)
+    _spawn_detached([target_exe])
+    return target_exe
+
+
 def check_for_updates():
     """
     Checks GitHub for new releases.
@@ -336,11 +347,19 @@ def _apply_update(release_data, latest_version):
                 logger.info("[Updater] Scheduled self-replace update to %s.", latest_version)
                 return {"updated": True, "should_exit": True, "mode": "self-replace", "version": latest_version}
 
-            logger.warning("[Updater] No write permissions for %s, trying installer fallback.", exe_dir)
+            # Fallback for non-writable install locations (e.g. Program Files without elevation):
+            # run the latest binary from user-local app data.
+            user_copy = _launch_user_local_copy(downloaded, os.path.basename(exe_path))
+            logger.warning(
+                "[Updater] No write permissions for %s. Launched user-local updated binary: %s",
+                exe_dir,
+                user_copy,
+            )
             try:
                 os.remove(downloaded)
             except OSError:
                 pass
+            return {"updated": True, "should_exit": True, "mode": "user-local-fallback", "version": latest_version}
         except Exception as err:
             logger.warning("[Updater] Portable update path failed: %s", err)
 
