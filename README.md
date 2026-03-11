@@ -11,7 +11,7 @@
 
 # Phantom Recoil
 
-**Phantom Recoil** is a modern Windows desktop recoil profile manager for Rainbow Six Siege, designed with an enterprise-grade UI, smooth interaction flow, strong diagnostics, reproducible builds, and release-ready packaging.
+**Phantom Recoil** is a Windows desktop recoil profile manager for Rainbow Six Siege, designed with a bold industrial/brutalist UI direction, smooth interaction flow, strong diagnostics, reproducible builds, and release-ready packaging.
 
 This project combines **Python + PyWebView + modern web UI** to deliver a lightweight but professional desktop tool with persistent settings, per-weapon recoil intensity, DPI scaling, icon caching, and robust update/release workflows.
 
@@ -19,7 +19,7 @@ This project combines **Python + PyWebView + modern web UI** to deliver a lightw
 
 Most recoil helpers are either throwaway scripts or hard to maintain long-term. Phantom Recoil focuses on the opposite:
 
-- Consistent UX and polished visual design.
+- Consistent UX with a distinct, non-generic visual identity.
 - Real release engineering (installer + portable + checksums + CI).
 - Stability hardening and diagnostics for fast issue triage.
 - Maintainable code structure suitable for active development.
@@ -35,6 +35,7 @@ Most recoil helpers are either throwaway scripts or hard to maintain long-term. 
 - Stable tab switching and preserved scroll behavior on selection.
 - Built-in auto-update checks and silent apply on startup.
 - Installer + portable release assets.
+- `latest.json` release manifest for updater metadata.
 
 ## SEO Section
 
@@ -53,18 +54,18 @@ This section is intentionally optimized with relevant phrases so developers and 
 
 ### Long-Tail SEO Phrases
 
-- enterprise style rainbow six recoil manager for windows
+- industrial style rainbow six recoil manager for windows
 - python recoil desktop tool with per weapon intensity memory
 - pywebview recoil app with diagnostics and updater
 - recoil profile manager with favorites and search
 - inno setup installer fix deletefile failed code 5
-- modern dark enterprise desktop ui with cached icons
+- brutalist desktop ui with animated tactical visuals
 
 ### SEO Description Snippet
 
 Use this for release pages, social cards, or listings:
 
-`Phantom Recoil is a professional Windows recoil profile manager for Rainbow Six Siege with DPI scaling, per-weapon intensity memory, icon caching, diagnostics, and polished enterprise-grade UI.`
+`Phantom Recoil is a professional Windows recoil profile manager for Rainbow Six Siege with DPI scaling, per-weapon intensity memory, icon caching, diagnostics, and a bold industrial desktop UI.`
 
 ## Technology Stack
 
@@ -128,6 +129,12 @@ PhantomRecoil/
 
 ## Download and Installation
 
+Current release packaging (for example `v1.0.24`) includes:
+- `PhantomRecoilSetup_vX.Y.Z.exe`
+- `Phantom_Recoil_Standalone.exe`
+- `SHA256SUMS.txt`
+- `latest.json`
+
 ### Recommended Path (Installer)
 
 1. Open official releases:
@@ -144,6 +151,14 @@ Download:
 - `Phantom_Recoil_Standalone.exe`
 
 Then run directly.
+
+## Auto-Update Behavior
+
+- On startup, the app checks the latest release metadata from:
+  - `https://github.com/mmadersbacher/PhantomRecoil/releases/latest/download/latest.json`
+- If a newer version exists, update is applied automatically (silent path).
+- If direct replacement is not possible, updater falls back to installer/user-local strategy.
+- No manual browser download should be required for normal update flow.
 
 ## SmartScreen and Trust Notes
 
@@ -208,12 +223,17 @@ START.bat
 BUILD.bat
 ```
 
-Expected outputs:
+Expected outputs from `BUILD.bat`:
 - `Phantom_Recoil.exe`
 - `Phantom_Recoil_Standalone.exe`
-- `PhantomRecoilSetup_vX.Y.Z.exe`
 - `SHA256SUMS.txt`
 - `latest.json`
+
+Installer build is handled separately via Inno Setup:
+
+```powershell
+ISCC.exe installer.iss /DAppVersion=X.Y.Z
+```
 
 ### Run Built App
 
