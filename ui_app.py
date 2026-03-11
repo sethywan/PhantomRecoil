@@ -291,8 +291,16 @@ if __name__ == '__main__':
         except Exception as err:
             logger.warning('[Diag] Failed to enable faulthandler: %s', err)
 
-    # 1. Start GitHub Updater in background thread! This prevents the 5-sec API timeout from freezing the app start.
-    threading.Thread(target=updater.run_auto_updater, daemon=True).start()
+    # 1. Run auto-updater before UI startup. If an update is scheduled/applied,
+    # exit this process so the updater helper/installer can continue safely.
+    update_result = updater.run_auto_updater()
+    if isinstance(update_result, dict) and update_result.get('should_exit'):
+        logger.info(
+            '[Updater] Update handoff complete (mode=%s, target=%s). Exiting current process.',
+            update_result.get('mode'),
+            update_result.get('version'),
+        )
+        sys.exit(0)
 
     api = Api()
     if DIAGNOSTIC_MODE:
