@@ -22,7 +22,7 @@
           <span class="material-icons-outlined">adjust</span>
           Phantom Recoil <span id="app-version" class="app-version"></span>
         </h1>
-        <p class="status idle" id="status-indicator" role="status" aria-live="polite">Caps Lock <span id="status-text">OFF</span></p>
+        <p class="status idle" id="status-indicator" role="status" aria-live="polite"><span id="hotkey-label">CapsLock</span> <span id="status-text">OFF</span></p>
       </div>
 
       <div class="settings-panel">
@@ -41,6 +41,15 @@
           <p class="help-text" id="intensity-help">Lowers aggressive Y pulling</p>
         </div>
 
+        <div class="setting-item">
+          <label for="hotkey-capture-btn">Activation Hotkey</label>
+          <div class="hotkey-container">
+            <span id="hotkey-badge" class="hotkey-badge">CapsLock</span>
+            <button id="hotkey-capture-btn" type="button" class="hotkey-change-btn" aria-describedby="hotkey-help">Change</button>
+          </div>
+          <p class="help-text" id="hotkey-help">Toggles recoil control on/off.</p>
+        </div>
+
         <div class="active-selection">
           <h3>Active Layout</h3>
           <div class="selected-op-card">
@@ -52,6 +61,18 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button id="export-settings-btn" type="button" class="icon-btn" title="Export all settings to a JSON file">
+          <span class="material-icons-outlined" aria-hidden="true">download</span>
+          Export
+        </button>
+        <button id="import-settings-btn" type="button" class="icon-btn" title="Import settings from a JSON file">
+          <span class="material-icons-outlined" aria-hidden="true">upload</span>
+          Import
+        </button>
+        <input type="file" id="import-file-input" accept=".json" style="display:none" aria-label="Import settings file">
       </div>
     </aside>
 

@@ -1,3 +1,22 @@
+// Windows VK codes for supported hotkeys.
+const VK_NAMES = {
+    0x14: 'CapsLock',
+    0x90: 'NumLock',
+    0x91: 'ScrollLock',
+    0x70: 'F1',  0x71: 'F2',  0x72: 'F3',  0x73: 'F4',
+    0x74: 'F5',  0x75: 'F6',  0x76: 'F7',  0x77: 'F8',
+    0x78: 'F9',  0x79: 'F10', 0x7A: 'F11', 0x7B: 'F12',
+};
+const ALLOWED_VKS = new Set(Object.keys(VK_NAMES).map(Number));
+
+// JS key name → Windows VK code.
+const KEY_TO_VK = {
+    CapsLock: 0x14, NumLock: 0x90, ScrollLock: 0x91,
+    F1: 0x70, F2: 0x71, F3: 0x72,  F4: 0x73,
+    F5: 0x74, F6: 0x75, F7: 0x76,  F8: 0x77,
+    F9: 0x78, F10: 0x79, F11: 0x7A, F12: 0x7B,
+};
+
 // State
 let currentTab = 'attackers';
 let searchQuery = '';
@@ -25,6 +44,8 @@ const TAB_SWITCH_DEBOUNCE_MS = 220;
 const ICON_CACHE_NAME = 'phantom-recoil-icons-v1';
 let lastDiagDumpAt = 0;
 const DIAG_DUMP_COOLDOWN_MS = 15000;
+let currentHotkeyVk = loadHotkeyVk();
+let hotkeyListening = false;
 
 // DOM Elements
 const grid = document.getElementById('operators-grid');
@@ -215,6 +236,145 @@ function setImageSourceWithCache(imgElement, url, onFallback) {
         .catch(() => {
             imgElement.src = url;
         });
+}
+
+// ── Hotkey persistence ────────────────────────────────────────────────────────
+
+function loadHotkeyVk() {
+    try {
+        const raw = localStorage.getItem('r6_hotkey_vk');
+        if (raw === null) return 0x14; // default: CapsLock
+        const parsed = parseInt(raw, 10);
+        return ALLOWED_VKS.has(parsed) ? parsed : 0x14;
+    } catch (err) {
+        console.warn('[Storage] Invalid hotkey VK, using default.', err);
+        return 0x14;
+    }
+}
+
+function saveHotkeyVk(vk) {
+    currentHotkeyVk = vk;
+    localStorage.setItem('r6_hotkey_vk', String(vk));
+}
+
+function getKeyNameFromVk(vk) {
+    return VK_NAMES[vk] || `VK_0x${vk.toString(16).toUpperCase().padStart(2, '0')}`;
+}
+
+function updateHotkeyDisplay() {
+    const badge = document.getElementById('hotkey-badge');
+    const label = document.getElementById('hotkey-label');
+    const name = getKeyNameFromVk(currentHotkeyVk);
+    if (badge) badge.textContent = name;
+    if (label) label.textContent = name;
+}
+
+function startHotkeyCapture() {
+    if (hotkeyListening) return;
+    hotkeyListening = true;
+
+    const badge = document.getElementById('hotkey-badge');
+    const btn = document.getElementById('hotkey-capture-btn');
+    if (badge) { badge.textContent = 'Press key…'; badge.classList.add('listening'); }
+    if (btn) { btn.textContent = 'Cancel'; btn.classList.add('listening'); }
+
+    const onKeyDown = (event) => {
+        event.preventDefault();
+        const vk = KEY_TO_VK[event.key];
+        if (vk !== undefined) {
+            applyHotkey(vk);
+        }
+        stopHotkeyCapture();
+    };
+
+    document.addEventListener('keydown', onKeyDown, { once: true });
+
+    // Store cleanup ref on the button so Cancel can remove the listener.
+    const btn2 = document.getElementById('hotkey-capture-btn');
+    if (btn2) btn2._cancelCapture = () => {
+        document.removeEventListener('keydown', onKeyDown);
+        stopHotkeyCapture();
+    };
+}
+
+function stopHotkeyCapture() {
+    hotkeyListening = false;
+    const badge = document.getElementById('hotkey-badge');
+    const btn = document.getElementById('hotkey-capture-btn');
+    if (badge) badge.classList.remove('listening');
+    if (btn) { btn.textContent = 'Change'; btn.classList.remove('listening'); btn._cancelCapture = null; }
+    updateHotkeyDisplay();
+}
+
+function applyHotkey(vk) {
+    saveHotkeyVk(vk);
+    updateHotkeyDisplay();
+    if (isPyWebViewAvailable()) {
+        window.pywebview.api.set_hotkey(vk).catch((err) => {
+            console.error('[PyWebView API Error] set_hotkey failed', err);
+        });
+    }
+    sendClientEvent('info', 'hotkey changed', { vk });
+}
+
+// ── Settings export / import ──────────────────────────────────────────────────
+
+function exportSettings() {
+    const payload = {
+        version: 1,
+        favorites,
+        dpi: userDpi,
+        weaponIntensityMap,
+        hotkeyVk: currentHotkeyVk,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'phantom_recoil_settings.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    sendClientEvent('info', 'settings exported', {});
+}
+
+function importSettings(file) {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        try {
+            const data = JSON.parse(event.target.result);
+            if (!data || typeof data !== 'object') throw new Error('Not an object');
+
+            if (Array.isArray(data.favorites)) {
+                favorites = data.favorites.filter((x) => typeof x === 'string' && x.trim().length > 0);
+                saveFavorites();
+            }
+
+            if (data.dpi !== undefined) saveDpi(data.dpi);
+
+            if (data.weaponIntensityMap && typeof data.weaponIntensityMap === 'object') {
+                const cleaned = {};
+                Object.keys(data.weaponIntensityMap).forEach((key) => {
+                    cleaned[key] = clampIntensity(data.weaponIntensityMap[key]);
+                });
+                weaponIntensityMap = cleaned;
+                saveWeaponIntensityMap();
+            }
+
+            if (data.hotkeyVk !== undefined) {
+                const vk = parseInt(data.hotkeyVk, 10);
+                if (ALLOWED_VKS.has(vk)) applyHotkey(vk);
+            }
+
+            sendClientEvent('info', 'settings imported', {});
+            requestRender();
+        } catch (err) {
+            console.error('[Import] Failed to parse settings file', err);
+            sendClientEvent('error', 'settings import failed', { reason: String(err) });
+        }
+    };
+    reader.readAsText(file);
 }
 
 function sendClientEvent(level, message, context) {
@@ -830,6 +990,7 @@ function requestRender() {
 
 function initializeUI() {
     sendClientEvent('info', 'ui initialized', { tab: currentTab });
+    updateHotkeyDisplay();
     requestRender();
 
     if (searchInput) {
@@ -883,6 +1044,35 @@ function initializeUI() {
             }
         });
     }
+
+    const hotkeyCaptureBtn = document.getElementById('hotkey-capture-btn');
+    if (hotkeyCaptureBtn) {
+        hotkeyCaptureBtn.addEventListener('click', () => {
+            if (hotkeyListening) {
+                if (typeof hotkeyCaptureBtn._cancelCapture === 'function') {
+                    hotkeyCaptureBtn._cancelCapture();
+                } else {
+                    stopHotkeyCapture();
+                }
+            } else {
+                startHotkeyCapture();
+            }
+        });
+    }
+
+    const exportBtn = document.getElementById('export-settings-btn');
+    if (exportBtn) exportBtn.addEventListener('click', exportSettings);
+
+    const importBtn = document.getElementById('import-settings-btn');
+    const importFileInput = document.getElementById('import-file-input');
+    if (importBtn && importFileInput) {
+        importBtn.addEventListener('click', () => importFileInput.click());
+        importFileInput.addEventListener('change', (event) => {
+            const file = event.target.files && event.target.files[0];
+            if (file) importSettings(file);
+            importFileInput.value = '';
+        });
+    }
 }
 
 window.addEventListener('error', (event) => {
@@ -915,6 +1105,10 @@ window.addEventListener('pywebviewready', () => {
     if (intensitySlider) {
         sendMultiplierToBackend(intensitySlider.value);
     }
+    // Restore persisted hotkey in backend.
+    window.pywebview.api.set_hotkey(currentHotkeyVk).catch((err) => {
+        console.error('[PyWebView API Error] set_hotkey on ready failed', err);
+    });
 });
 
 window.addEventListener('beforeunload', () => {

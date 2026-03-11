@@ -20,7 +20,7 @@ import uuid
 
 
 logger = logging.getLogger(__name__)
-DIAGNOSTIC_MODE = True
+DIAGNOSTIC_MODE = os.getenv('PHANTOM_RECOIL_DIAGNOSTIC', '1') != '0'
 DIAGNOSTIC_DUMP_SECONDS = 45
 PROCESS_SNAPSHOT_SECONDS = 10
 APP_TITLE = f"Phantom Recoil {updater.__version__}"
@@ -210,6 +210,26 @@ class Api:
             logger.exception('[Diag] dump_diagnostics failed: %s', err)
             return {'ok': False, 'error': str(err)}
         return {'ok': True, 'reason': safe_reason}
+
+    def get_hotkey(self):
+        """Return current hotkey VK code and name."""
+        from macro import VK_NAMES
+        with self._macro._state_lock:
+            vk = self._macro.hotkey_vk
+        return {'vk_code': vk, 'name': VK_NAMES.get(vk, f'VK_0x{vk:02X}')}
+
+    def set_hotkey(self, vk_code):
+        """Set activation hotkey. Accepts only safe toggle/function keys."""
+        try:
+            vk = int(vk_code) & 0xFF
+        except (TypeError, ValueError):
+            return {'ok': False, 'error': 'Invalid VK code'}
+        ok = self._macro.set_hotkey(vk)
+        if ok:
+            from macro import VK_NAMES
+            logger.info("[Backend] Hotkey updated to VK 0x%02X", vk)
+            return {'ok': True, 'vk_code': vk, 'name': VK_NAMES.get(vk, f'VK_0x{vk:02X}')}
+        return {'ok': False, 'error': 'Key not in allowed set'}
 
     def shutdown(self):
         logger.info("[Backend] Shutdown requested, stopping macro loop...")
